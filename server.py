@@ -1,9 +1,10 @@
-from flask import Flask, request, redirect, render_template_string
+from flask import Flask, request, redirect, render_template_string, session
 import json
 import os
 from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = "garagecoin_secret_key_123"
 
 DB_FILE = "wallets.json"
 ADMIN_PASSWORD = "GAR_Admin_9472"
@@ -18,8 +19,6 @@ else:
 
 admin_attempts = {}
 admin_logged = {}
-current_user = None
-
 
 def save():
     with open(DB_FILE, "w") as f:
@@ -52,12 +51,13 @@ button{background:#00aa44;color:white;cursor:pointer}
 button:hover{background:#00cc55}
 .lock{background:#555}
 
-.admin{
+.top{
 position:absolute;
 top:10px;
 right:10px;
-width:120px;
+width:140px;
 }
+a{color:white}
 </style>
 </head>
 <body>
@@ -66,12 +66,14 @@ width:120px;
 
 {% if wallet %}
 
-<div class="admin">
+<div class="top">
 <form method="post" action="/admin_login">
 <input type="hidden" name="wallet" value="{{wallet}}">
 <input name="password" placeholder="Admin">
 <button>👑 Admin</button>
 </form>
+
+<a href="/logout">🚪 Logout</a>
 </div>
 
 {% endif %}
@@ -95,16 +97,7 @@ width:120px;
 
 <hr>
 
-<h3>🛒 Магазин токенов</h3>
-<form method="post" action="/buy_token">
-<input type="hidden" name="wallet" value="{{wallet}}">
-<button>Купить 1 токен (5 GAR)</button>
-</form>
-
-<hr>
-
 <h3>🔓 Разблокировка майнинга</h3>
-
 <form method="post" action="/use_token">
 <input type="hidden" name="wallet" value="{{wallet}}">
 <button>Использовать 1 токен</button>
@@ -147,28 +140,28 @@ width:120px;
 </html>
 """
 
-# ---------------- ROUTES ----------------
+# ---------------- HOME ----------------
 
 @app.route("/")
 def home():
-    if not current_user:
+    if "user" not in session:
         return render_template_string(HTML, wallet=None)
 
-    w = wallets[current_user]
+    user = session["user"]
+    w = wallets[user]
 
     return render_template_string(
         HTML,
-        wallet=current_user,
+        wallet=user,
         balance=w["balance"],
         tokens=w["tokens"],
         mining_unlocked=w["mining_unlocked"]
     )
 
+# ---------------- LOGIN ----------------
 
 @app.route("/login", methods=["POST"])
 def login():
-    global current_user
-
     name = request.form["name"]
     password = request.form["password"]
 
@@ -177,16 +170,22 @@ def login():
     if wallets[name]["password"] != password:
         return "Неверный пароль"
 
-    current_user = name
+    session["user"] = name
+    session["admin"] = False
+
     return redirect("/")
 
+# ---------------- LOGOUT ----------------
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
 
 # ---------------- ADMIN ----------------
 
 @app.route("/admin_login", methods=["POST"])
 def admin_login():
-    global current_user
-
     wallet = request.form["wallet"]
     password = request.form["password"]
 
@@ -210,25 +209,37 @@ def admin_login():
 
     save()
 
-    current_user = wallet
-    return redirect("/")
+    session["user"] = wallet
+    session["admin"] = True
 
+    return redirect("/admin_panel")
+
+# ---------------- ADMIN PANEL ----------------
+
+@app.route("/admin_panel")
+def admin_panel():
+    if "user" not in session:
+        return "Not logged in"
+
+    if not session.get("admin", False):
+        return "No admin access"
+
+    return render_template_string("""
+    <h1>👑 ADMIN PANEL</h1>
+    <a href="/">← back</a>
+    <hr>
+
+    {% for name, data in wallets.items() %}
+        <div style="background:#222;padding:10px;margin:10px">
+            <b>{{name}}</b><br>
+            💰 Balance: {{data["balance"]}}<br>
+            🎟 Tokens: {{data["tokens"]}}<br>
+            ⛏ Mining: {{data["mining_unlocked"]}}
+        </div>
+    {% endfor %}
+    """, wallets=wallets)
 
 # ---------------- TOKEN ----------------
-
-@app.route("/buy_token", methods=["POST"])
-def buy_token():
-    wallet = request.form["wallet"]
-
-    if wallets[wallet]["balance"] < 5:
-        return "❌ Недостаточно GAR"
-
-    wallets[wallet]["balance"] -= 5
-    wallets[wallet]["tokens"] += 1
-
-    save()
-    return redirect("/")
-
 
 @app.route("/use_token", methods=["POST"])
 def use_token():
@@ -242,7 +253,6 @@ def use_token():
 
     save()
     return redirect("/")
-
 
 # ---------------- MINING ----------------
 
@@ -270,8 +280,7 @@ def mine():
     save()
     return redirect("/")
 
-
-# ---------------- TRANSFER ----------------
+# ---------------- SEND ----------------
 
 @app.route("/send", methods=["POST"])
 def send():
@@ -290,7 +299,6 @@ def send():
 
     save()
     return redirect("/")
-
 
 # ---------------- RUN ----------------
 
