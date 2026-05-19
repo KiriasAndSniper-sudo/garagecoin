@@ -6,7 +6,6 @@ from datetime import datetime
 app = Flask(__name__)
 
 DB_FILE = "wallets.json"
-
 ADMIN_PASSWORD = "GAR_Admin_9472"
 
 # ---------------- DATA ----------------
@@ -17,11 +16,12 @@ if os.path.exists(DB_FILE):
 else:
     wallets = {}
 
+admin_attempts = {}
+admin_logged = {}
+
 def save():
     with open(DB_FILE, "w") as f:
         json.dump(wallets, f)
-
-# ---------------- INIT DEFAULT FIELDS ----------------
 
 def ensure_user(name, password=None):
     if name not in wallets:
@@ -48,11 +48,30 @@ input,button{width:90%;padding:10px;margin:6px;border-radius:10px;border:none}
 button{background:#00aa44;color:white;cursor:pointer}
 button:hover{background:#00cc55}
 .lock{background:#555}
+
+.admin{
+position:absolute;
+top:10px;
+right:10px;
+width:120px;
+}
 </style>
 </head>
 <body>
 
 <div class="box">
+
+<!-- 👑 ADMIN BUTTON TOP RIGHT -->
+{% if wallet %}
+<div class="admin">
+<form method="post" action="/admin_login">
+<input type="hidden" name="wallet" value="{{wallet}}">
+<input name="password" placeholder="Admin">
+<button>👑 Admin</button>
+</form>
+</div>
+{% endif %}
+
 <h1>GARAGECOIN</h1>
 
 {% if not wallet %}
@@ -67,7 +86,7 @@ button:hover{background:#00cc55}
 {% else %}
 
 <h3>Кошелек: {{wallet}}</h3>
-<p>Баланс: {{balance}} GAR</p>
+<p>💰 Баланс: {{balance}} GAR</p>
 <p>🎟 Токены: {{tokens}}</p>
 
 <hr>
@@ -98,8 +117,6 @@ button:hover{background:#00cc55}
 <button class="lock">🔒 Закрыто</button>
 {% endif %}
 
-<p>{{msg}}</p>
-
 <hr>
 
 <h3>💸 Перевод</h3>
@@ -111,6 +128,7 @@ button:hover{background:#00cc55}
 </form>
 
 {% endif %}
+
 </div>
 
 </body>
@@ -139,12 +157,41 @@ def login():
         wallet=name,
         balance=wallets[name]["balance"],
         tokens=wallets[name]["tokens"],
-        mining_unlocked=wallets[name]["mining_unlocked"],
-        msg=""
+        mining_unlocked=wallets[name]["mining_unlocked"]
     )
 
 
-# ---------------- TOKEN USE ----------------
+# ---------------- ADMIN ----------------
+
+@app.route("/admin_login", methods=["POST"])
+def admin_login():
+    wallet = request.form["wallet"]
+    password = request.form["password"]
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if wallet not in admin_attempts:
+        admin_attempts[wallet] = {"date": today, "tries": 0}
+
+    if admin_attempts[wallet]["date"] != today:
+        admin_attempts[wallet] = {"date": today, "tries": 0}
+
+    if admin_attempts[wallet]["tries"] >= 2:
+        return "⛔ Нет попыток сегодня"
+
+    if password != ADMIN_PASSWORD:
+        admin_attempts[wallet]["tries"] += 1
+        return f"❌ Ошибка. Осталось: {2 - admin_attempts[wallet]['tries']}"
+
+    admin_logged[wallet] = True
+    wallets[wallet]["mining_unlocked"] = True  # 👑 открываем майнинг
+
+    save()
+
+    return redirect("/")
+
+
+# ---------------- TOKEN ----------------
 
 @app.route("/use_token", methods=["POST"])
 def use_token():
@@ -157,7 +204,6 @@ def use_token():
     wallets[wallet]["mining_unlocked"] = True
 
     save()
-
     return redirect("/")
 
 
@@ -168,7 +214,7 @@ def mine():
     wallet = request.form["wallet"]
 
     if not wallets[wallet]["mining_unlocked"]:
-        return "🔒 Нужен токен"
+        return "🔒 Нужен токен или админ"
 
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -179,7 +225,7 @@ def mine():
     if wallets[wallet]["mined_today"] >= 10:
         wallets[wallet]["mining_unlocked"] = False
         save()
-        return "⛔ Лимит 10 GAR достигнут"
+        return "⛔ Лимит 10 GAR"
 
     wallets[wallet]["balance"] += 1
     wallets[wallet]["mined_today"] += 1
