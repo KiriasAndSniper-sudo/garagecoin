@@ -18,10 +18,13 @@ else:
 
 admin_attempts = {}
 admin_logged = {}
+current_user = None
+
 
 def save():
     with open(DB_FILE, "w") as f:
         json.dump(wallets, f)
+
 
 def ensure_user(name, password=None):
     if name not in wallets:
@@ -61,8 +64,8 @@ width:120px;
 
 <div class="box">
 
-<!-- 👑 ADMIN BUTTON TOP RIGHT -->
 {% if wallet %}
+
 <div class="admin">
 <form method="post" action="/admin_login">
 <input type="hidden" name="wallet" value="{{wallet}}">
@@ -70,6 +73,7 @@ width:120px;
 <button>👑 Admin</button>
 </form>
 </div>
+
 {% endif %}
 
 <h1>GARAGECOIN</h1>
@@ -88,6 +92,14 @@ width:120px;
 <h3>Кошелек: {{wallet}}</h3>
 <p>💰 Баланс: {{balance}} GAR</p>
 <p>🎟 Токены: {{tokens}}</p>
+
+<hr>
+
+<h3>🛒 Магазин токенов</h3>
+<form method="post" action="/buy_token">
+<input type="hidden" name="wallet" value="{{wallet}}">
+<button>Купить 1 токен (5 GAR)</button>
+</form>
 
 <hr>
 
@@ -139,11 +151,24 @@ width:120px;
 
 @app.route("/")
 def home():
-    return render_template_string(HTML, wallet=None)
+    if not current_user:
+        return render_template_string(HTML, wallet=None)
+
+    w = wallets[current_user]
+
+    return render_template_string(
+        HTML,
+        wallet=current_user,
+        balance=w["balance"],
+        tokens=w["tokens"],
+        mining_unlocked=w["mining_unlocked"]
+    )
 
 
 @app.route("/login", methods=["POST"])
 def login():
+    global current_user
+
     name = request.form["name"]
     password = request.form["password"]
 
@@ -152,19 +177,16 @@ def login():
     if wallets[name]["password"] != password:
         return "Неверный пароль"
 
-    return render_template_string(
-        HTML,
-        wallet=name,
-        balance=wallets[name]["balance"],
-        tokens=wallets[name]["tokens"],
-        mining_unlocked=wallets[name]["mining_unlocked"]
-    )
+    current_user = name
+    return redirect("/")
 
 
 # ---------------- ADMIN ----------------
 
 @app.route("/admin_login", methods=["POST"])
 def admin_login():
+    global current_user
+
     wallet = request.form["wallet"]
     password = request.form["password"]
 
@@ -181,17 +203,32 @@ def admin_login():
 
     if password != ADMIN_PASSWORD:
         admin_attempts[wallet]["tries"] += 1
-        return f"❌ Ошибка. Осталось: {2 - admin_attempts[wallet]['tries']}"
+        return "❌ Неверный пароль"
 
     admin_logged[wallet] = True
-    wallets[wallet]["mining_unlocked"] = True  # 👑 открываем майнинг
+    wallets[wallet]["mining_unlocked"] = True
 
     save()
 
+    current_user = wallet
     return redirect("/")
 
 
 # ---------------- TOKEN ----------------
+
+@app.route("/buy_token", methods=["POST"])
+def buy_token():
+    wallet = request.form["wallet"]
+
+    if wallets[wallet]["balance"] < 5:
+        return "❌ Недостаточно GAR"
+
+    wallets[wallet]["balance"] -= 5
+    wallets[wallet]["tokens"] += 1
+
+    save()
+    return redirect("/")
+
 
 @app.route("/use_token", methods=["POST"])
 def use_token():
