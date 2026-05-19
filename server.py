@@ -18,7 +18,6 @@ else:
     wallets = {}
 
 admin_attempts = {}
-admin_logged = {}
 
 def save():
     with open(DB_FILE, "w") as f:
@@ -55,9 +54,8 @@ button:hover{background:#00cc55}
 position:absolute;
 top:10px;
 right:10px;
-width:140px;
+width:160px;
 }
-a{color:white}
 </style>
 </head>
 <body>
@@ -67,13 +65,15 @@ a{color:white}
 {% if wallet %}
 
 <div class="top">
+
 <form method="post" action="/admin_login">
 <input type="hidden" name="wallet" value="{{wallet}}">
 <input name="password" placeholder="Admin">
 <button>👑 Admin</button>
 </form>
 
-<a href="/logout">🚪 Logout</a>
+<a href="/logout" style="color:white">🚪 Logout</a>
+
 </div>
 
 {% endif %}
@@ -97,7 +97,8 @@ a{color:white}
 
 <hr>
 
-<h3>🔓 Разблокировка майнинга</h3>
+<h3>🔓 Майнинг</h3>
+
 <form method="post" action="/use_token">
 <input type="hidden" name="wallet" value="{{wallet}}">
 <button>Использовать 1 токен</button>
@@ -106,7 +107,7 @@ a{color:white}
 {% if mining_unlocked %}
 <p>⛏ Майнинг открыт</p>
 {% else %}
-<p>🔒 Майнинг заблокирован</p>
+<p>🔒 Майнинг закрыт</p>
 {% endif %}
 
 <hr>
@@ -175,14 +176,15 @@ def login():
 
     return redirect("/")
 
-# ---------------- LOGOUT ----------------
+# ---------------- LOGOUT (FIXED) ----------------
 
 @app.route("/logout")
 def logout():
-    session.clear()
+    session.pop("user", None)
+    session.pop("admin", None)
     return redirect("/")
 
-# ---------------- ADMIN ----------------
+# ---------------- ADMIN LOGIN ----------------
 
 @app.route("/admin_login", methods=["POST"])
 def admin_login():
@@ -204,9 +206,7 @@ def admin_login():
         admin_attempts[wallet]["tries"] += 1
         return "❌ Неверный пароль"
 
-    admin_logged[wallet] = True
     wallets[wallet]["mining_unlocked"] = True
-
     save()
 
     session["user"] = wallet
@@ -225,21 +225,43 @@ def admin_panel():
         return "No admin access"
 
     return render_template_string("""
-    <h1>👑 ADMIN PANEL</h1>
-    <a href="/">← back</a>
+    <h1 style="color:white">👑 ADMIN PANEL</h1>
+    <a href="/" style="color:white">← back</a>
     <hr>
 
     {% for name, data in wallets.items() %}
-        <div style="background:#222;padding:10px;margin:10px">
+        <div style="background:#222;padding:10px;margin:10px;color:white;border-radius:10px">
             <b>{{name}}</b><br>
             💰 Balance: {{data["balance"]}}<br>
             🎟 Tokens: {{data["tokens"]}}<br>
             ⛏ Mining: {{data["mining_unlocked"]}}
+
+            <form method="post" action="/give_token">
+                <input type="hidden" name="wallet" value="{{name}}">
+                <button>🎟 Выдать токен</button>
+            </form>
         </div>
     {% endfor %}
     """, wallets=wallets)
 
-# ---------------- TOKEN ----------------
+# ---------------- GIVE TOKEN ----------------
+
+@app.route("/give_token", methods=["POST"])
+def give_token():
+    if not session.get("admin", False):
+        return "No admin access"
+
+    wallet = request.form["wallet"]
+
+    if wallet not in wallets:
+        return "Wallet not found"
+
+    wallets[wallet]["tokens"] += 1
+    save()
+
+    return redirect("/admin_panel")
+
+# ---------------- USE TOKEN ----------------
 
 @app.route("/use_token", methods=["POST"])
 def use_token():
